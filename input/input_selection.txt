@@ -1,0 +1,20 @@
+#sections: global options in OPTION, selections in SELECTION, variations in VARIATION, datasets in SET
+#option format is: type:name[val] or vtype:name[val1,val2,...]
+#available types are (full/abbrev): bool/b, int/i, double/d, string/s, color/c
+#items on each line in the SELECTION, VARIATION, and SET sections must be tab-separated, with required items first, in order
+#SELECTION/VARIATION: only required item is name, selectors/variators are associated with a selection/variation by tab-indentation
+#SET: required items are type (base), subtype (skim), name (but without filenames, nothing will happen)
+
+OPTION
+int:yieldprecision[2]
+
+SELECTION
+dijet
+	EventInfo
+	RecoJet
+	RecoDijet
+	GenJet
+	GenDijet
+
+SET
+base	skim	QCD	b:chain[1]	vs:filenames[Pt-15to30.root,Pt-30to50.root,Pt-50to80.root,Pt-80to120.root,Pt-120to170.root,Pt-170to300.root,Pt-300to470.root,Pt-470to600.root,Pt-600to800.root,Pt-800to1000.root,Pt-1000to1400.root,Pt-1400to1800.root,Pt-1800to2400.root,Pt-2400to3200.root,Pt-3200toInf.root]	s:chainsuff[/t]

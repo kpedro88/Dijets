@@ -81,7 +81,7 @@ class KJetSelector : public KSelector<KSkimmer> {
 			if(do_gen) bpre = "Gen";
 			else bpre = "Reco";
 			//set tree branches here
-			tree->Branch((bpre+"Jet").c_str(),"std::vector<TLorentzVector>",&Jets);
+			tree->Branch((bpre+"Jet").c_str(),"std::vector<TLorentzVector>",&Jets,32000,0);
 			//default values for variables
 			Jets = NULL;
 		}

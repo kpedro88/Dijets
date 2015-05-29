@@ -17,6 +17,7 @@
 #include <TPaveText.h>
 #include <TColor.h>
 #include "Math/MinimizerOptions.h"
+#include <TVirtualFitter.h>
 
 //STL headers
 #include <vector>
@@ -58,6 +59,37 @@ Double_t cball(Double_t *x, Double_t *par){
 	//core
 	else{
 		return N*Exp(-Power(arg,2)/2);
+	}
+
+}
+
+//------------------------------------------
+//Right-sided log(Crystal Ball) function
+//parameters:
+//N, mu, sigma, a, n
+//0,  1,     2, 3, 4
+Double_t logcball(Double_t *x, Double_t *par){
+	//ensure sigma > 0 and a > 0
+	par[0] = Abs(par[0]);
+	Double_t N = par[0]; //let N float
+	Double_t mu = par[1];
+	par[2] = Abs(par[2]);
+	Double_t sigma = par[2];
+	par[3] = Abs(par[3]);
+	Double_t a = par[3];
+	par[4] = (par[4]>1) ? par[4] : 1.01; //n>1 required
+	Double_t n = par[4];
+	Double_t arg = (x[0]-mu)/sigma;
+	
+	double d = n/a;
+
+	//right tail
+	if(arg >= a){
+		return Log(N) - Power(a,2)/2 - n*Log((d-a+arg)/d);
+	}
+	//core
+	else{
+		return Log(N) - Power(arg,2)/2;
 	}
 
 }
@@ -114,37 +146,53 @@ class KAsymFit {
 			hist->SetLineWidth(2);
 			hist->SetLineColor(color);
 			
+			//create log version of hist
+			TH1F* loghist = (TH1F*)hist->Clone("log");
+			for(int b = 0; b <= loghist->GetNbinsX()+1; ++b){
+				if(loghist->GetBinContent(b)<=0) continue;
+				loghist->SetBinError(b,loghist->GetBinError(b)/loghist->GetBinContent(b));
+				loghist->SetBinContent(b,log(loghist->GetBinContent(b)));
+			}
+			
 			//get mean value of alpha histo
 			alpha_mean = h_alpha->GetMean();
 			alpha_meanE = h_alpha->GetMeanError();
 			
 			//get values from histo
-			mean  = hist->GetMean();
-			meanE = hist->GetMeanError();
-			rms   = hist->GetRMS();
-			rmsE  = hist->GetRMSError();
-			Nevents  = hist->GetEntries();
+			mean  = loghist->GetMean();
+			meanE = loghist->GetMeanError();
+			rms   = loghist->GetRMS();
+			rmsE  = loghist->GetRMSError();
+			Nevents  = loghist->GetEntries();
 			
 			//fit histogram
 			//ROOT::Math::MinimizerOptions::SetDefaultMinimizer("Minuit2");
-			gfit = new TF1("tot",cball,hist->GetXaxis()->GetXmin(),hist->GetXaxis()->GetXmax(),5);
+			//ROOT::Math::MinimizerOptions::SetDefaultStrategy(2);
+			//TVirtualFitter::SetMaxIterations(50000);
+			TF1* logfit = new TF1("logtot",logcball,loghist->GetXaxis()->GetXmin(),loghist->GetXaxis()->GetXmax(),5);
 			//assume tail starts at 2 sigma, peak is at 0
-			gfit->SetParameters((Double_t)Nevents,0,rms,2,1.1);
+			logfit->SetParameters(hist->GetBinContent(1),0,rms,2,1.1);
 			//limits on parameters: 0 < a < 10, 1 < n < 200
-			gfit->SetParLimits(3,0,10);
-			gfit->SetParLimits(4,1.01,200);
-			hist->Fit(gfit,"NQE");
+			logfit->SetParLimits(3,0,10);
+			logfit->SetParLimits(4,1.01,200);
+			loghist->Fit(logfit,"NQ");
 			
 			//get values from fit
-			mu      = gfit->GetParameter(1);
-			muE     = gfit->GetParError(1);
-			sigma   = gfit->GetParameter(2);
-			sigmaE  = gfit->GetParError(2);
-			a       = gfit->GetParameter(3);
-			aE      = gfit->GetParError(3);
-			n       = gfit->GetParameter(4);
-			nE      = gfit->GetParError(4);
-			chi2ndf = gfit->GetChisquare()/gfit->GetNDF();
+			mu      = logfit->GetParameter(1);
+			muE     = logfit->GetParError(1);
+			sigma   = abs(logfit->GetParameter(2));
+			sigmaE  = logfit->GetParError(2);
+			a       = logfit->GetParameter(3);
+			aE      = logfit->GetParError(3);
+			n       = logfit->GetParameter(4);
+			nE      = logfit->GetParError(4);
+			//chi2ndf = logfit->GetChisquare()/logfit->GetNDF();
+			
+			//setup linear function
+			gfit = new TF1("tot",cball,hist->GetXaxis()->GetXmin(),hist->GetXaxis()->GetXmax(),5);
+			gfit->SetParameters(logfit->GetParameter(0),mu,sigma,a,n);
+			//use linear function to compute chisquare with original histo
+			//chi2ndf = hist->Chisquare(gfit)/logfit->GetNDF();
 			
 			//fit text
 			fitnames.reserve(6);

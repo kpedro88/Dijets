@@ -87,7 +87,7 @@ void DrawAsym(KAsymFit* asym, bool print=false, string psuff="png", string pdir=
 	asym->gfit->SetLineStyle(1);
 	asym->gfit->Draw("same");
 	
-	//gaussian to show effect of cball tail
+	//linearized gaussian to show effect of cball tail
 	TF1* gsn = new TF1("gsn","gaus",asym->hist->GetXaxis()->GetXmin(),asym->hist->GetXaxis()->GetXmax());
 	gsn->SetParameters(asym->gfit->GetParameter(0),asym->mu,asym->sigma);
 	gsn->SetLineWidth(2);

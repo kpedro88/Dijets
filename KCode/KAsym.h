@@ -186,7 +186,7 @@ class KAsymFit {
 			aE      = logfit->GetParError(3);
 			n       = logfit->GetParameter(4);
 			nE      = logfit->GetParError(4);
-			//chi2ndf = logfit->GetChisquare()/logfit->GetNDF();
+			chi2ndf = logfit->GetChisquare()/logfit->GetNDF();
 			
 			//setup linear function
 			gfit = new TF1("tot",cball,hist->GetXaxis()->GetXmin(),hist->GetXaxis()->GetXmax(),5);
@@ -275,6 +275,8 @@ class KAsymExtrap {
 			for(int p = 0; p < 4; ++p){
 				graph[p] = NULL;
 				gfit[p] = NULL;
+				ymax[p] = 0;
+				ymin[p] = 1e10;
 			}
 		}
 		
@@ -335,7 +337,7 @@ class KAsymExtrap {
 		vector<string> GetVariedDescList(int s)  { return GetDescList(s,false,false); }
 		vector<string> GetVariedPrintList(int s) { return GetDescList(s,true,false); }
 		//make param extrap graphs
-		void MakeGraphs(bool fit){
+		void MakeGraphs(){
 			//check for q automatically
 			q_varied = 0;
 			for(int q = 0; q < qtySize; q++){
@@ -346,7 +348,7 @@ class KAsymExtrap {
 					}
 				}
 			}
-			if(q_varied==0) cout << "Warning: no varied quantities in this group!" << endl;
+			if(q_varied==0) { cout << "Warning: no varied quantities in this group!" << endl; cout << asymfits[0]->hist->GetName() << endl; }
 			
 			for(int p = 0; p < 4; ++p){
 				MakeGraph(p);
@@ -363,6 +365,8 @@ class KAsymExtrap {
 				xe[s] = asymfits[s]->GetXerr((qty)q_varied);
 				y[s] = asymfits[s]->GetY(p);
 				ye[s] = asymfits[s]->GetYerr(p);
+				if(y[s]>ymax[p]) ymax[p] = y[s];
+				if(y[s]<ymin[p]) ymin[p] = y[s];
 			}
 			
 			if(graph[p]) delete graph[p];
@@ -381,10 +385,10 @@ class KAsymExtrap {
 				default:   graph[p]->GetXaxis()->SetTitle("");
 			}
 			switch(p){
-				case 0: graph[p]->GetYaxis()->SetTitle("#mu");
-				case 1: graph[p]->GetYaxis()->SetTitle("#sigma");
-				case 2: graph[p]->GetYaxis()->SetTitle("a");
-				case 3: graph[p]->GetYaxis()->SetTitle("n");
+				case 0: graph[p]->GetYaxis()->SetTitle("#mu"); break;
+				case 1: graph[p]->GetYaxis()->SetTitle("#sigma"); break;
+				case 2: graph[p]->GetYaxis()->SetTitle("a"); break;
+				case 3: graph[p]->GetYaxis()->SetTitle("n"); break;
 				default: graph[p]->GetYaxis()->SetTitle("");
 			}
 			
@@ -395,18 +399,21 @@ class KAsymExtrap {
 			
 			//linear fit
 			if(gfit[p]) delete gfit[p];
-			gfit[p] = new TF1("lin","pol1",graph[p]->GetXaxis()->GetXmin(),graph[p]->GetXaxis()->GetXmax());
+			if(q_varied==Alpha) gfit[p] = new TF1("lin","pol1",0.0,0.25); //hardcoded for now
+			else gfit[p] = new TF1("lin","pol1",graph[p]->GetXaxis()->GetXmin(),graph[p]->GetXaxis()->GetXmax());
 			graph[p]->Fit(gfit[p],"NQ");
 			
 			//get values from fit
 			p0[p]   = gfit[p]->GetParameter(0);
 			p0E[p]  = gfit[p]->GetParError(0);
 			chi2ndf[p] = gfit[p]->GetChisquare()/gfit[p]->GetNDF();
+			if(p0[p]>ymax[p]) ymax[p] = p0[p];
+			if(p0[p]<ymin[p]) ymin[p] = p0[p];
 			
 			//fit text
 			fitnames[p].reserve(2);
 			std::stringstream p0name, chiname;
-			p0name.precision(3); p0name << fixed << graph[p]->GetYaxis()->GetTitle() << "_{0} = " << p0 << " #pm " << p0E; fitnames[p].push_back(p0name.str());
+			p0name.precision(3); p0name << fixed << graph[p]->GetYaxis()->GetTitle() << "_{0} = " << p0[p] << " #pm " << p0E[p]; fitnames[p].push_back(p0name.str());
 			chiname.precision(5); chiname << fixed << "#chi^{2}/ndf = " << chi2ndf[p]; fitnames[p].push_back(chiname.str());
 		}
 		
@@ -417,7 +424,7 @@ class KAsymExtrap {
 		vector<bool> common;
 		TGraphErrors* graph[4];
 		TF1* gfit[4];
-		double p0[4], p0E[4], chi2ndf[4];
+		double p0[4], p0E[4], chi2ndf[4], ymax[4], ymin[4];
 		int q_varied;
 		vector<string> fitnames[4];
 };

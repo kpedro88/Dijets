@@ -111,107 +111,106 @@ void DrawAsym(KAsymFit* asym, bool print=false, string psuff="png", string pdir=
 	}
 }
 
-/*
+
 //--------------------------------------------------
-//function to draw resolution graphs
-void DrawResolution(vector<KGroup*> groups, bool fit=true, bool print=false, string psuff="png", string pdir="plots"){
-	//initial loop over groups
-	KGroup* supergroup = new KGroup();
-	for(int g = 0; g < groups.size(); g++){
-		//create graph
-		groups[g]->MakeGraph(fit);
+//function to draw extrapolations
+void DrawExtrap(KAsymExtrap* extrap, string alphabin="", bool print=false, string psuff="png", string pdir="plots"){
+	//skip empty or otherwise pointless extraps
+	if(extrap->asymfits.size()<2) return;
+	
+	//create graphs
+	extrap->MakeGraphs();
+	
+	//loop over parameters to be extrapolated
+	for(int p = 0; p < 4; ++p){
+		//make canvas/print name
+		string oname = "extrap_";
+		if(alphabin.size()>0) oname += alphabin + "_";
+		switch(p){
+			case 0: oname += "mu"; break;
+			case 1: oname += "sigma"; break;
+			case 2: oname += "a"; break;
+			case 3: oname += "n"; break;
+			default: oname += "";
+		}
+		oname += "_vs_";
+		switch((qty)(extrap->q_varied)){
+			case Jet: oname += "jet"; break;
+			case Alpha: 
+				if(extrap->asymfits[0]->atype==Std) { oname += "alpha"; }
+				else if(extrap->asymfits[0]->atype==Par) { oname += "apar"; }
+				else if(extrap->asymfits[0]->atype==Perp) { oname += "aperp"; }
+				break;
+			case Pt: oname += "pt"; break;
+			case Eta:  oname += "eta"; break;
+			default:   oname += "";
+		}
+		string overall_common = extrap->GetCommonPrint();
+		if(overall_common.size()>0) oname += "__" + overall_common;
+
+		//create base histo for drawing axes
+		//TH1F* hbase = new TH1F("hbase","",100,extrap->graph[p]->GetXaxis()->GetXmin(),extrap->graph[p]->GetXaxis()->GetXmax());
+		TH1F* hbase = new TH1F("hbase","",100,0.0,0.25); //hardcoded for now
+		hbase->GetXaxis()->SetTitle(extrap->graph[p]->GetXaxis()->GetTitle());
+		hbase->GetYaxis()->SetTitle(extrap->graph[p]->GetYaxis()->GetTitle());
+		double yrange = extrap->ymax[p] - extrap->ymin[p];
+		hbase->GetYaxis()->SetRangeUser(extrap->ymin[p]-yrange*0.1,extrap->ymax[p]+yrange*0.1);
+
+		//get preamble text - each time, b/c vector will be modified
+		vector<string> preamble = extrap->GetCommonDescList();
+		if(alphabin.size()>0) preamble.push_back(alphabin+" #alpha");
+		vector<int> extra_text_panels(preamble.size(),0);
+		//add fit text
+		preamble.insert(preamble.end(),extrap->fitnames[p].begin(),extrap->fitnames[p].end());
+		vector<int> fit_panels(extrap->fitnames[p].size(),1);
+		extra_text_panels.insert(extra_text_panels.end(),fit_panels.begin(),fit_panels.end());
 		
-		//check consistenty of varied qty
-		if(g>0 && groups[g]->q_varied != groups[0]->q_varied){
-			cout << "Error: inconsistent varied quantity among groups. DrawResolution() will exit now." << endl;
-			return;
-		}
+		//make plot options
+		OptionMap* globalOpt = initGlobalOpt();
+		globalOpt->Set<vector<string> >("extra_text",preamble);
+		globalOpt->Set<int>("npanel",2);
+		globalOpt->Set<bool>("balance_panels",0);
+		globalOpt->Set<vector<int> >("extra_text_panels",extra_text_panels);
+		globalOpt->Set<double>("sizeLeg",22);
+		globalOpt->Set<double>("sizeSymb",0.05);
+		OptionMap* localOpt = initLocalOpt();
+		localOpt->Set<bool>("logy",false);
 		
-		//create supergroup
-		for(int s = 0; s < groups[g]->samples.size(); s++){
-			supergroup->push_back(groups[g]->samples[s]);
+		//make plot
+		KPlot* plot = new KPlot(oname,localOpt,globalOpt);
+		plot->Initialize(hbase);
+		KLegend* kleg = plot->GetLegend();
+		TCanvas* can = plot->GetCanvas();
+		TPad* pad1 = plot->GetPad1();
+		pad1->cd();
+		
+		//draw blank histo for axes
+		plot->DrawHist();
+		
+		//draw extrap
+		extrap->graph[p]->Draw("pe same");
+		
+		//draw fit
+		extrap->gfit[p]->SetLineWidth(2);
+		extrap->gfit[p]->SetLineColor(kRed);
+		extrap->gfit[p]->SetLineStyle(1);
+		extrap->gfit[p]->Draw("same");
+
+		//build legend
+		kleg->AddHist(hbase); //for tick sizes
+		kleg->Build(KLegend::left,KLegend::top);
+
+		//finish drawing
+		plot->GetHisto()->Draw("sameaxis"); //draw again so axes on top
+		plot->DrawText();
+		
+		if(print){
+			can->Print((pdir+"/"+oname+"."+psuff).c_str(),psuff.c_str());
 		}
-	}
-
-	//check for overall commonalities
-	for(int q = 0; q < supergroup->common.size(); q++){
-		if(supergroup->common[q]){
-			//remove overall commonality from individual groups
-			//for labeling purposes
-			for(int g = 0; g < groups.size(); g++){
-				groups[g]->common[q] = false;
-			}
-		}
-	}
-	
-	//make canvas/print name
-	string oname = "reso";
-	if(fit) oname += "_fit";
-	oname += "_vs_";
-	switch((qty)(groups[0]->q_varied)){
-		case Algo: oname += "algo"; break;
-		case Year: oname += "year"; break;
-		case Lumi: oname += "lumi"; break;
-		case Eta:  oname += "eta"; break;
-		default:   oname += "";
-	}
-	oname += "__pt30";
-	string overall_common = supergroup->GetCommonPrint();
-	if(overall_common.size()>0) oname += "_" + overall_common;
-	for(int g = 0; g < groups.size(); g++){
-		oname += "__" + groups[g]->GetCommonPrint();
-	}
-	//todo: add "string extra" param to fn, to get eta bin info etc.?
-
-	//create base histo for drawing axes
-	TH1F* hbase = new TH1F("hbase","",100,groups[0]->graph->GetXaxis()->GetXmin(),groups[0]->graph->GetXaxis()->GetXmax());
-	hbase->GetXaxis()->SetTitle(groups[0]->graph->GetXaxis()->GetTitle());
-	hbase->GetYaxis()->SetTitle(groups[0]->graph->GetYaxis()->GetTitle());
-	hbase->GetYaxis()->SetRangeUser(0.0,0.8);
-	
-	//get preamble text
-	vector<string> preamble = supergroup->GetCommonDescList();
-	//preamble.insert(preamble.begin(),"p_{T}^{Gen} > 10 GeV");
-	preamble.insert(preamble.begin(),"#hat{p}_{T} = 30 GeV");
-
-	//make plot options
-	OptionMap* globalOpt = initGlobalOpt();
-	globalOpt->Set<vector<string> >("extra_text",preamble);
-	OptionMap* localOpt = initLocalOpt();
-	
-	//make plot
-	KPlot* plot = new KPlot(oname,localOpt,globalOpt);
-	plot->Initialize(hbase);
-	KLegend* kleg = plot->GetLegend();
-	TCanvas* can = plot->GetCanvas();
-	TPad* pad1 = plot->GetPad1();
-	pad1->cd();
-	
-	//draw blank histo for axes
-	plot->DrawHist();
-	
-	//draw groups
-	for(int g = 0; g < groups.size(); g++){
-		groups[g]->graph->Draw("pe same");
-		//add group to legend based on common cuts
-		//kleg->AddEntry(groups[g]->graph,groups[g]->GetCommonDesc(),"pe"); //"e" option has wrong color until ROOT 5.34.11
-		kleg->AddEntry(groups[g]->graph,groups[g]->GetCommonDesc(),"p");
-	}
-
-	//build legend
-	kleg->AddHist(hbase); //for tick sizes
-	kleg->Build(KLegend::left,KLegend::top);
-
-	//finish drawing
-	plot->GetHisto()->Draw("sameaxis"); //draw again so axes on top
-	plot->DrawText();
-	
-	if(print){
-		can->Print((pdir+"/"+oname+"."+psuff).c_str(),psuff.c_str());
 	}
 	
 }
-*/
+
 }
 
 #endif

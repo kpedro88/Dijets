@@ -1,0 +1,7 @@
+OPTION
+vdouble:pt_bins[45,75,100,135,175,195,220,240,270,294,312,335,360,405,498,1500]
+vdouble:eta_bins[0.0, 0.5, 1.1, 1.7, 2.3, 3.0, 5.0]
+vdouble:alpha_bins[0.0, 0.1, 0.125, 0.15, 0.175, 0.2, 0.225, 0.25]
+vint:alpha_types[0,1,2]
+#skip gen for now
+vint:jet_types[0]

@@ -99,8 +99,9 @@ Double_t logcball(Double_t *x, Double_t *par){
 class KAsymFit {
 	public:
 		//constructor
-		KAsymFit(TH1F* hist_, TH1F* h_alpha, alg jtype_, alph atype_, double amin_, double amax_, double ptmin_, double ptmax_, double etamin_, double etamax_, string extra_="", Color_t color_=kBlack) :
-			jtype(jtype_), atype(atype_), amin(amin_), amax(amax_), ptmin(ptmin_), ptmax(ptmax_), pt((ptmin+ptmax)/2), etamin(etamin_), etamax(etamax_), eta((etamin+etamax)/2), extra(extra_), color(color_),
+		KAsymFit(TH1F* hist_, alg jtype_, alph atype_, double amin_, double amax_, double amean_, double ameanE_, double ptmin_, double ptmax_, double etamin_, double etamax_, string extra_="", Color_t color_=kBlack) :
+			jtype(jtype_), atype(atype_), amin(amin_), amax(amax_), alpha_mean(amean_), alpha_meanE(ameanE_), ptmin(ptmin_), 
+			ptmax(ptmax_), pt((ptmin+ptmax)/2), etamin(etamin_), etamax(etamax_), eta((etamin+etamax)/2), extra(extra_), color(color_),
 			legnames(qtySize,""), printnames(qtySize,""), cutname(""), printname(""),
 			hist(hist_), gfit(NULL), mean(0), meanE(0), rms(0), rmsE(0), Nevents(0), mu(0), muE(0), sigma(0), sigmaE(0), a(0), aE(0), n(0), nE(0), chi2ndf(0)
 		{
@@ -153,10 +154,6 @@ class KAsymFit {
 				loghist->SetBinError(b,loghist->GetBinError(b)/loghist->GetBinContent(b));
 				loghist->SetBinContent(b,log(loghist->GetBinContent(b)));
 			}
-			
-			//get mean value of alpha histo
-			alpha_mean = h_alpha->GetMean();
-			alpha_meanE = h_alpha->GetMeanError();
 			
 			//get values from histo
 			mean  = loghist->GetMean();

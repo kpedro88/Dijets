@@ -68,14 +68,14 @@ void TreeClass::Loop()
 			//jet variables
 			double dijetpt, jet0eta, jet1eta, asymmetry;
 			
-			if(ijt==0){ //reco jet
+			if(bins.jtype[ijt]==0){ //reco jet
 				if(abs(RecoDijetDeltaPhi)<=2.7) continue;
 				dijetpt = RecoDijetPt;
 				jet0eta = RecoJet->at(0).Eta();
 				jet1eta = RecoJet->at(1).Eta();
 				asymmetry = RecoAsymmetry;
 			}
-			else if(ijt==1){ //gen jet
+			else if(bins.jtype[ijt]==1){ //gen jet
 				if(abs(GenDijetDeltaPhi)<=2.7) continue;
 				dijetpt = GenDijetPt;
 				jet0eta = GenJet->at(0).Eta();
@@ -107,21 +107,21 @@ void TreeClass::Loop()
 			//loop over alpha types
 			for(int iat = 0; iat < bins.atype.size(); ++iat){
 				double alpha;
-				if(ijt==0){ //reco jet
-					if(iat==0) alpha = RecoAlpha; //std
-					else if(iat==1) alpha = RecoApar; //parallel
-					else if(iat==2) alpha = RecoAperp; //perpendicular
+				if(bins.jtype[ijt]==0){ //reco jet
+					if(bins.atype[iat]==0) alpha = RecoAlpha; //std
+					else if(bins.atype[iat]==1) alpha = RecoApar; //parallel
+					else if(bins.atype[iat]==2) alpha = RecoAperp; //perpendicular
 				}
-				else if(ijt==1){ //gen jet
-					if(iat==0) alpha = GenAlpha; //std
-					else if(iat==1) alpha = GenApar; //parallel
-					else if(iat==2) alpha = GenAperp; //perpendicular
+				else if(bins.jtype[ijt]==1){ //gen jet
+					if(bins.atype[iat]==0) alpha = GenAlpha; //std
+					else if(bins.atype[iat]==1) alpha = GenApar; //parallel
+					else if(bins.atype[iat]==2) alpha = GenAperp; //perpendicular
 				}
 				
 				//loop over alpha bins & fill histos
 				for(int ial = 0; ial < bins.alpha.size()-1; ++ial){
 					//inclusive binning
-					if(alpha>=bins.alpha[ial] && alpha<bins.alpha.back()){
+					if(alpha>=0.0 && alpha<=bins.alpha[ial+1]){
 						bins.asym_incl[ijt][iat][ipt][iet][ial]->Fill(asymmetry,weight);
 						bins.alpha_incl[ijt][iat][ipt][iet][ial]->Fill(alpha,weight);
 					}

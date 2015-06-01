@@ -40,15 +40,9 @@ void dijet_comp(bool print=false, string psuff="png", string pdir="plots", TFile
 						h_asym_excl = (TH1F*)file->Get(bins.asym_excl_names[ijt][iat][ipt][iet][ial].c_str());
 						h_alpha_excl = (TH1F*)file->Get(bins.alpha_excl_names[ijt][iat][ipt][iet][ial].c_str());
 						if(h_asym_excl->GetEntries()>0){ //skip histos with 0 entries						
-							KAsymFit* asym_excl = new KAsymFit(h_asym_excl,h_alpha_excl,(alg)bins.jtype[ijt],(alph)bins.atype[iat],bins.alpha[ial],bins.alpha[ial+1],bins.pt[ipt],bins.pt[ipt+1],bins.eta[iet],bins.eta[iet+1]);
+							KAsymFit* asym_excl = new KAsymFit(h_asym_excl,(alg)bins.jtype[ijt],(alph)bins.atype[iat],bins.alpha[ial],bins.alpha[ial+1],h_alpha_excl->GetMean(),h_alpha_excl->GetMeanError(),bins.pt[ipt],bins.pt[ipt+1],bins.eta[iet],bins.eta[iet+1]);
 							KDraw::DrawAsym(asym_excl,print,psuff,pdir);
 							extrap_excl->push_back(asym_excl);
-
-							//inclusive = exclusive for last bin
-							if(ial==bins.alpha.size()-2) {
-								extrap_incl->push_back(asym_excl);
-								continue;
-							}
 						}
 						
 						//get histos from file - inclusive alpha binning
@@ -56,7 +50,7 @@ void dijet_comp(bool print=false, string psuff="png", string pdir="plots", TFile
 						h_asym_incl = (TH1F*)file->Get(bins.asym_incl_names[ijt][iat][ipt][iet][ial].c_str());
 						h_alpha_incl = (TH1F*)file->Get(bins.alpha_incl_names[ijt][iat][ipt][iet][ial].c_str());
 						if(h_asym_incl->GetEntries()>0){ //skip histos with 0 entries
-							KAsymFit* asym_incl = new KAsymFit(h_asym_incl,h_alpha_incl,(alg)bins.jtype[ijt],(alph)bins.atype[iat],bins.alpha[ial],bins.alpha.back(),bins.pt[ipt],bins.pt[ipt+1],bins.eta[iet],bins.eta[iet+1]);
+							KAsymFit* asym_incl = new KAsymFit(h_asym_incl,(alg)bins.jtype[ijt],(alph)bins.atype[iat],0.0,bins.alpha[ial+1],bins.alpha[ial+1],0.0,bins.pt[ipt],bins.pt[ipt+1],bins.eta[iet],bins.eta[iet+1]);
 							KDraw::DrawAsym(asym_incl,print,psuff,pdir);
 							extrap_incl->push_back(asym_incl);
 						}

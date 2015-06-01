@@ -92,7 +92,7 @@ class KAsymBins {
 								if(!only_names){
 									asym_incl[ijt][iat][ipt][iet][ial] = new TH1F(asym_incl_names[ijt][iat][ipt][iet][ial].c_str(),"",50,0.0,1.0);
 									asym_excl[ijt][iat][ipt][iet][ial] = new TH1F(asym_excl_names[ijt][iat][ipt][iet][ial].c_str(),"",50,0.0,1.0);
-									alpha_incl[ijt][iat][ipt][iet][ial] = new TH1F(alpha_incl_names[ijt][iat][ipt][iet][ial].c_str(),"",50,alpha[ial],alpha.back());
+									alpha_incl[ijt][iat][ipt][iet][ial] = new TH1F(alpha_incl_names[ijt][iat][ipt][iet][ial].c_str(),"",50,0.0,alpha[ial+1]);
 									alpha_excl[ijt][iat][ipt][iet][ial] = new TH1F(alpha_excl_names[ijt][iat][ipt][iet][ial].c_str(),"",50,alpha[ial],alpha[ial+1]);
 								}
 							}

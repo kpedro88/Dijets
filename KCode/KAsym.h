@@ -26,6 +26,8 @@
 #include <iostream>
 #include <cmath>
 
+#define nExtrapPars 3
+
 using namespace std;
 using namespace TMath;
 
@@ -34,64 +36,63 @@ enum alg { Reco=0, Gen=1 };
 enum alph { Std=0, Par=1, Perp=2 };
 
 //------------------------------------------
-//Right-sided Crystal Ball function
+//Right-sided Novosibirsk function
+//following notation from CALICE in JINST 9 P01004
 //parameters:
-//N, mu, sigma, a, n
-//0,  1,     2, 3, 4
-Double_t cball(Double_t *x, Double_t *par){
-	//ensure sigma > 0 and a > 0
+//N, mu, sigma, tau
+//0,  1,     2,   3
+Double_t novos(Double_t *x, Double_t *par){
 	Double_t N = par[0]; //let N float
 	Double_t mu = par[1];
+	//ensure sigma > 0
 	par[2] = Abs(par[2]);
 	Double_t sigma = par[2];
+	//ensure tau > 0 for right-side tail
 	par[3] = Abs(par[3]);
-	Double_t a = par[3];
-	par[4] = (par[4]>1) ? par[4] : 1.01; //n>1 required
-	Double_t n = par[4];
+	Double_t tau = par[3];
 	Double_t arg = (x[0]-mu)/sigma;
 	
-	double d = n/a;
+	//converges to gaussian as tau -> 0
+	if(Abs(tau)< 1.e-7) return N*Exp(-Power(arg,2)/2);
 
-	//right tail
-	if(arg >= a){
-		return N*Exp(-Power(a,2)/2)*Power((d-a+arg)/d,-n);
-	}
-	//core
-	else{
-		return N*Exp(-Power(arg,2)/2);
-	}
-
+	//sqrt(ln(4))
+	static const Double_t xi = 1.177410022515475;
+	Double_t lnarg = 1 + arg*SinH(xi*tau)/xi;
+	
+	//avoid small or negative arguments to log
+	if(lnarg < 1.e-7) return 0.0;
+	
+	return N*Exp(-(Power(Log(lnarg)/tau,2)+Power(tau,2))/2);
 }
 
 //------------------------------------------
-//Right-sided log(Crystal Ball) function
+//Right-sided log(Novosibirsk) function
+//following notation from CALICE in JINST 9 P01004
 //parameters:
-//N, mu, sigma, a, n
-//0,  1,     2, 3, 4
-Double_t logcball(Double_t *x, Double_t *par){
-	//ensure sigma > 0 and a > 0
-	par[0] = Abs(par[0]);
+//N, mu, sigma, tau
+//0,  1,     2,   3
+Double_t lognovos(Double_t *x, Double_t *par){
 	Double_t N = par[0]; //let N float
 	Double_t mu = par[1];
+	//ensure sigma > 0
 	par[2] = Abs(par[2]);
 	Double_t sigma = par[2];
+	//ensure tau > 0 for right-side tail
 	par[3] = Abs(par[3]);
-	Double_t a = par[3];
-	par[4] = (par[4]>1) ? par[4] : 1.01; //n>1 required
-	Double_t n = par[4];
+	Double_t tau = par[3]; //tail param can be positive or negative?
 	Double_t arg = (x[0]-mu)/sigma;
 	
-	double d = n/a;
+	//converges to gaussian as tau -> 0
+	if(Abs(tau) < 1.e-7) return Log(N) - Power(arg,2)/2;
 
-	//right tail
-	if(arg >= a){
-		return Log(N) - Power(a,2)/2 - n*Log((d-a+arg)/d);
-	}
-	//core
-	else{
-		return Log(N) - Power(arg,2)/2;
-	}
-
+	//sqrt(ln(4))
+	static const Double_t xi = 1.177410022515475;
+	Double_t lnarg = 1 + arg*SinH(xi*tau)/xi;
+	
+	//avoid small or negative arguments to log
+	if(lnarg < 1.e-7) return 0.0;
+	
+	return Log(N) - (Power(Log(lnarg)/tau,2)+Power(tau,2))/2;
 }
 
 //-----------------------------------------------------------------------------------------
@@ -103,7 +104,7 @@ class KAsymFit {
 			jtype(jtype_), atype(atype_), amin(amin_), amax(amax_), alpha_mean(amean_), alpha_meanE(ameanE_), ptmin(ptmin_), 
 			ptmax(ptmax_), pt((ptmin+ptmax)/2), etamin(etamin_), etamax(etamax_), eta((etamin+etamax)/2), extra(extra_), color(color_),
 			legnames(qtySize,""), printnames(qtySize,""), cutname(""), printname(""),
-			hist(hist_), gfit(NULL), mean(0), meanE(0), rms(0), rmsE(0), Nevents(0), mu(0), muE(0), sigma(0), sigmaE(0), a(0), aE(0), n(0), nE(0), chi2ndf(0)
+			hist(hist_), gfit(NULL), mean(0), meanE(0), rms(0), rmsE(0), Nevents(0), mu(0), muE(0), sigma(0), sigmaE(0), tau(0), tauE(0), chi2ndf(0)
 		{
 			//create legend names (descriptions) & print names
 			if(jtype==Reco) { legnames[Jet] = "RecoJet"; printnames[Jet] = "Reco"; }
@@ -166,12 +167,9 @@ class KAsymFit {
 			//ROOT::Math::MinimizerOptions::SetDefaultMinimizer("Minuit2");
 			//ROOT::Math::MinimizerOptions::SetDefaultStrategy(2);
 			//TVirtualFitter::SetMaxIterations(50000);
-			TF1* logfit = new TF1("logtot",logcball,loghist->GetXaxis()->GetXmin(),loghist->GetXaxis()->GetXmax(),5);
-			//assume tail starts at 2 sigma, peak is at 0
-			logfit->SetParameters(hist->GetBinContent(1),0,rms,2,1.1);
-			//limits on parameters: 0 < a < 10, 1 < n < 200
-			logfit->SetParLimits(3,0,10);
-			logfit->SetParLimits(4,1.01,200);
+			TF1* logfit = new TF1("logtot",lognovos,loghist->GetXaxis()->GetXmin(),loghist->GetXaxis()->GetXmax(),4);
+			//assume peak is at 0, arbitrary tail param
+			logfit->SetParameters(hist->GetBinContent(1),0,rms,0.5);
 			loghist->Fit(logfit,"NQ");
 			
 			//get values from fit
@@ -179,26 +177,23 @@ class KAsymFit {
 			muE     = logfit->GetParError(1);
 			sigma   = abs(logfit->GetParameter(2));
 			sigmaE  = logfit->GetParError(2);
-			a       = logfit->GetParameter(3);
-			aE      = logfit->GetParError(3);
-			n       = logfit->GetParameter(4);
-			nE      = logfit->GetParError(4);
+			tau     = abs(logfit->GetParameter(3));
+			tauE    = logfit->GetParError(3);
 			chi2ndf = logfit->GetChisquare()/logfit->GetNDF();
 			
 			//setup linear function
-			gfit = new TF1("tot",cball,hist->GetXaxis()->GetXmin(),hist->GetXaxis()->GetXmax(),5);
-			gfit->SetParameters(logfit->GetParameter(0),mu,sigma,a,n);
+			gfit = new TF1("tot",novos,hist->GetXaxis()->GetXmin(),hist->GetXaxis()->GetXmax(),4);
+			gfit->SetParameters(logfit->GetParameter(0),mu,sigma,tau);
 			//use linear function to compute chisquare with original histo
 			//chi2ndf = hist->Chisquare(gfit)/logfit->GetNDF();
 			
 			//fit text
 			fitnames.reserve(6);
-			std::stringstream Nname, muname, sigmaname, aname, nname, chiname;
+			std::stringstream Nname, muname, sigmaname, tauname, chiname;
 			//Nname << "N = " << Nevents; fitnames.push_back(Nname.str());
 			muname.precision(3); muname << fixed << "#mu = " << mu << " #pm " << muE; fitnames.push_back(muname.str());
 			sigmaname.precision(3); sigmaname << fixed << "#sigma = " << sigma << " #pm " << sigmaE; fitnames.push_back(sigmaname.str());
-			aname.precision(3); aname << fixed << "a = " << a << " #pm " << aE; fitnames.push_back(aname.str());
-			nname.precision(3); nname << fixed << "n = " << n << " #pm " << nE; fitnames.push_back(nname.str());
+			tauname.precision(3); tauname << fixed << "#tau = " << tau << " #pm " << tauE; fitnames.push_back(tauname.str());
 			chiname.precision(5); chiname << fixed << "#chi^{2}/ndf = " << chi2ndf; fitnames.push_back(chiname.str());
 			
 		}
@@ -230,8 +225,7 @@ class KAsymFit {
 			switch(p){
 				case 0: return mu;
 				case 1: return sigma;
-				case 2: return a;
-				case 3: return n;
+				case 2: return tau;
 				default: return 0;
 			}
 		}
@@ -239,8 +233,7 @@ class KAsymFit {
 			switch(p){
 				case 0: return muE;
 				case 1: return sigmaE;
-				case 2: return aE;
-				case 3: return nE;
+				case 2: return tauE;
 				default: return 0;
 			}
 		}
@@ -257,7 +250,7 @@ class KAsymFit {
 		TH1F* hist;
 		TF1* gfit;
 		double mean, meanE, rms, rmsE;
-		double mu, muE, sigma, sigmaE, a, aE, n, nE, chi2ndf;
+		double mu, muE, sigma, sigmaE, tau, tauE, chi2ndf;
 		int Nevents;
 };
 
@@ -268,8 +261,8 @@ class KAsymFit {
 class KAsymExtrap {
 	public:
 		//constructor
-		KAsymExtrap(Color_t color_=kBlack, int marker_=20) : color(color_), marker(marker_), asymfits(0), common(qtySize,true), q_varied(0) {
-			for(int p = 0; p < 4; ++p){
+		KAsymExtrap(Color_t color_=kBlack, int marker_=20) : color(color_), marker(marker_), asymfits(0), asymextraps(0), common(qtySize,true), q_varied(0) {
+			for(int p = 0; p < nExtrapPars; ++p){
 				graph[p] = NULL;
 				gfit[p] = NULL;
 				ymax[p] = 0;
@@ -278,17 +271,17 @@ class KAsymExtrap {
 		}
 		
 		//accessors
-		void push_back(KAsymFit* s){
+		virtual void push_back(KAsymFit* s){
 			asymfits.push_back(s);
 			//keep track of common qtys among asymfits in this group
 			if(asymfits.size()>1) compare(asymfits[0],s);
 		}
-		void compare(KAsymFit* s1, KAsymFit* s2){
+		virtual void compare(KAsymFit* s1, KAsymFit* s2){
 			for(int q = 0; q < qtySize; q++){
 				if(common[q]) common[q] = compare_qty(s1,s2,(qty)q);
 			}
 		}
-		bool compare_qty(KAsymFit* s1, KAsymFit* s2, qty q){
+		virtual bool compare_qty(KAsymFit* s1, KAsymFit* s2, qty q){
 			switch(q){
 				case Jet: return s1->jtype==s2->jtype;
 				case Alpha: return s1->alpha_mean==s2->alpha_mean;
@@ -299,7 +292,7 @@ class KAsymExtrap {
 			}
 		}
 		//get descriptions from asymfits
-		string GetDescAll(int s, bool print, bool incommon) {
+		virtual string GetDescAll(int s, bool print, bool incommon) {
 			string desc("");
 			for(int q = 0; q < qtySize; q++){
 				string qdesc = GetDesc(s, (qty)q, print, incommon);
@@ -311,7 +304,7 @@ class KAsymExtrap {
 			}
 			return desc;
 		}
-		vector<string> GetDescList(int s, bool print, bool incommon){
+		virtual vector<string> GetDescList(int s, bool print, bool incommon){
 			vector<string> descs;
 			for(int q = 0; q < qtySize; q++){
 				string qdesc = GetDesc(s, (qty)q, print, incommon);
@@ -319,22 +312,22 @@ class KAsymExtrap {
 			}
 			return descs;
 		}
-		string GetDesc(int s, qty q, bool print, bool incommon) {
+		virtual string GetDesc(int s, qty q, bool print, bool incommon) {
 			if(asymfits.size()<s+1) return "";
 			if(common[q]==incommon) return asymfits[s]->GetDesc(q, print);
 			else return "";
 		}
 		//more clearly named instances from above
-		string GetCommonDesc()  { return GetDescAll(0,false,true); }
-		string GetCommonPrint() { return GetDescAll(0,true,true); }
-		string GetVariedDesc(int s)  { return GetDescAll(s,false,false); }
-		string GetVariedPrint(int s) { return GetDescAll(s,true,false); }
-		vector<string> GetCommonDescList()  { return GetDescList(0,false,true); }
-		vector<string> GetCommonPrintList() { return GetDescList(0,true,true); }
-		vector<string> GetVariedDescList(int s)  { return GetDescList(s,false,false); }
-		vector<string> GetVariedPrintList(int s) { return GetDescList(s,true,false); }
+		virtual string GetCommonDesc()  { return GetDescAll(0,false,true); }
+		virtual string GetCommonPrint() { return GetDescAll(0,true,true); }
+		virtual string GetVariedDesc(int s)  { return GetDescAll(s,false,false); }
+		virtual string GetVariedPrint(int s) { return GetDescAll(s,true,false); }
+		virtual vector<string> GetCommonDescList()  { return GetDescList(0,false,true); }
+		virtual vector<string> GetCommonPrintList() { return GetDescList(0,true,true); }
+		virtual vector<string> GetVariedDescList(int s)  { return GetDescList(s,false,false); }
+		virtual vector<string> GetVariedPrintList(int s) { return GetDescList(s,true,false); }
 		//make param extrap graphs
-		void MakeGraphs(){
+		virtual void MakeGraphs(double xmin, double xmax){
 			//check for q automatically
 			q_varied = 0;
 			for(int q = 0; q < qtySize; q++){
@@ -345,13 +338,13 @@ class KAsymExtrap {
 					}
 				}
 			}
-			if(q_varied==0) { cout << "Warning: no varied quantities in this group!" << endl; cout << asymfits[0]->hist->GetName() << endl; }
+			if(q_varied==0) { cout << "Warning: no varied quantities in this group!" << endl; }
 			
-			for(int p = 0; p < 4; ++p){
-				MakeGraph(p);
+			for(int p = 0; p < nExtrapPars; ++p){
+				MakeGraph(p,xmin,xmax);
 			}
 		}
-		void MakeGraph(int p){
+		virtual void MakeGraph(int p, double xmin, double xmax){
 			double* x = new double[asymfits.size()];
 			double* xe = new double[asymfits.size()];
 			double* y = new double[asymfits.size()];
@@ -384,8 +377,7 @@ class KAsymExtrap {
 			switch(p){
 				case 0: graph[p]->GetYaxis()->SetTitle("#mu"); break;
 				case 1: graph[p]->GetYaxis()->SetTitle("#sigma"); break;
-				case 2: graph[p]->GetYaxis()->SetTitle("a"); break;
-				case 3: graph[p]->GetYaxis()->SetTitle("n"); break;
+				case 2: graph[p]->GetYaxis()->SetTitle("#tau"); break;
 				default: graph[p]->GetYaxis()->SetTitle("");
 			}
 			
@@ -396,7 +388,7 @@ class KAsymExtrap {
 			
 			//linear fit
 			if(gfit[p]) delete gfit[p];
-			if(q_varied==Alpha) gfit[p] = new TF1("lin","pol1",0.0,0.25); //hardcoded for now
+			if(q_varied==Alpha) gfit[p] = new TF1("lin","pol1",xmin,xmax);
 			else gfit[p] = new TF1("lin","pol1",graph[p]->GetXaxis()->GetXmin(),graph[p]->GetXaxis()->GetXmax());
 			graph[p]->Fit(gfit[p],"NQ");
 			
@@ -418,12 +410,105 @@ class KAsymExtrap {
 		Color_t color;
 		int marker;
 		vector<KAsymFit*> asymfits;
+		vector<KAsymExtrap*> asymextraps;
 		vector<bool> common;
-		TGraphErrors* graph[4];
-		TF1* gfit[4];
-		double p0[4], p0E[4], chi2ndf[4], ymax[4], ymin[4];
+		TGraphErrors* graph[nExtrapPars];
+		TF1* gfit[nExtrapPars];
+		double p0[nExtrapPars], p0E[nExtrapPars], chi2ndf[nExtrapPars], ymax[nExtrapPars], ymin[nExtrapPars];
 		int q_varied;
-		vector<string> fitnames[4];
+		vector<string> fitnames[nExtrapPars];
+};
+
+//----------------------------------------------------------------------------------------------------
+//class to keep track of AsymExtrap results, what cuts they have in common, and look at trends
+//inherits from KAsymExtrap
+class KAsymTrend : public KAsymExtrap {
+	public:
+		//constructor
+		KAsymTrend(Color_t color_=kBlack, int marker_=20) : KAsymExtrap(color_, marker_) { }
+		
+		//accessors
+		void push_back(KAsymExtrap* s){
+			asymextraps.push_back(s);
+			//cout << s->GetCommonPrint() << ", " << s->GetVariedPrint(s->asymfits.size()-1) << endl;
+			//keep track of common qtys among asymfits in this group
+			if(asymextraps.size()>1) compare(asymextraps[0],s);
+		}
+		void compare(KAsymExtrap* s1, KAsymExtrap* s2){
+			for(int q = 0; q < qtySize; q++){
+				if(common[q]) {
+					//if both extraps have the same varied quantity, it's "common" for the trend
+					if(s1->q_varied==q){
+						if(s2->q_varied==q) common[q] = true;
+						else common[q] = false;
+					}
+					else {
+						common[q] = compare_qty(s1->asymfits[0], s2->asymfits[0], (qty)q);
+					}
+				}
+			}
+		}
+		//get descriptions from asymextraps
+		string GetDesc(int s, qty q, bool print, bool incommon) {
+			if(asymextraps.size()<s+1) return "";
+			//second condition necessary to skip the var that's varied in each extrap
+			if(common[q]==incommon){
+				//special case
+				if(q==asymextraps[s]->q_varied && q==Alpha){
+					if(asymextraps[s]->asymfits[0]->atype==Std) return print ? "Alpha" : "#alpha";
+					else if(asymextraps[s]->asymfits[0]->atype==Par) return print ? "Apar" : "#alpha_{#parallel}";
+					else if(asymextraps[s]->asymfits[0]->atype==Perp) return print ? "Aperp" : "#alpha_{#perp}";
+					else return "";
+				}
+				else return asymextraps[s]->GetDesc(0,q,print,incommon);
+			}
+			else return "";
+		}
+		//make param trend graphs
+		void MakeGraph(int p, double xmin, double xmax){
+			double* x = new double[asymextraps.size()];
+			double* xe = new double[asymextraps.size()];
+			double* y = new double[asymextraps.size()];
+			double* ye = new double[asymextraps.size()];
+			
+			for(int s = 0; s < asymextraps.size(); s++){
+				x[s] = asymextraps[s]->asymfits[0]->GetX((qty)q_varied);
+				xe[s] = asymextraps[s]->asymfits[0]->GetXerr((qty)q_varied);
+				y[s] = asymextraps[s]->p0[p];
+				ye[s] = asymextraps[s]->p0E[p];
+				if(y[s]>ymax[p]) ymax[p] = y[s];
+				if(y[s]<ymin[p]) ymin[p] = y[s];
+			}
+			
+			if(graph[p]) delete graph[p];
+			graph[p] = new TGraphErrors(asymextraps.size(),x,y,xe,ye);
+			
+			//axis titles
+			switch((qty)q_varied){
+				case Jet: graph[p]->GetXaxis()->SetTitle("Jet type"); break;
+				case Alpha: 
+					if(asymextraps[0]->asymfits[0]->atype==Std) { graph[p]->GetXaxis()->SetTitle("#alpha"); }
+					else if(asymextraps[0]->asymfits[0]->atype==Par) { graph[p]->GetXaxis()->SetTitle("#alpha_{#parallel}"); }
+					else if(asymextraps[0]->asymfits[0]->atype==Perp) { graph[p]->GetXaxis()->SetTitle("#alpha_{#perp}"); }
+					break;
+				case Pt: graph[p]->GetXaxis()->SetTitle("p_{T} [GeV]"); break;
+				case Eta:  graph[p]->GetXaxis()->SetTitle("#eta"); break;
+				default:   graph[p]->GetXaxis()->SetTitle("");
+			}
+			switch(p){
+				case 0: graph[p]->GetYaxis()->SetTitle("#mu"); break;
+				case 1: graph[p]->GetYaxis()->SetTitle("#sigma"); break;
+				case 2: graph[p]->GetYaxis()->SetTitle("#tau"); break;
+				default: graph[p]->GetYaxis()->SetTitle("");
+			}
+			
+			//formatting
+			graph[p]->SetMarkerStyle(marker);
+			graph[p]->SetMarkerColor(color);
+			graph[p]->SetLineColor(color);
+		}
+		
+		//member variables
 };
 
 #endif

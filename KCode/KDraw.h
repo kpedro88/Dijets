@@ -81,13 +81,7 @@ void DrawAsym(KAsymFit* asym, bool print=false, string psuff="png", string pdir=
 	//draw sample
 	asym->hist->Draw("hist same");
 	
-	//plot the fit as well
-	asym->gfit->SetLineWidth(2);
-	asym->gfit->SetLineColor(kRed);
-	asym->gfit->SetLineStyle(1);
-	asym->gfit->Draw("same");
-	
-	//linearized gaussian to show effect of cball tail
+	//linearized gaussian to show effect of tail
 	TF1* gsn = new TF1("gsn","gaus",asym->hist->GetXaxis()->GetXmin(),asym->hist->GetXaxis()->GetXmax());
 	gsn->SetParameters(asym->gfit->GetParameter(0),asym->mu,asym->sigma);
 	gsn->SetLineWidth(2);
@@ -95,13 +89,11 @@ void DrawAsym(KAsymFit* asym, bool print=false, string psuff="png", string pdir=
 	gsn->SetLineStyle(2);
 	gsn->Draw("same");
 	
-	//line at start of tail
-	Double_t bndR = asym->mu + asym->sigma*asym->a;
-	TLine* line = new TLine(bndR,kleg->GetRange().first,bndR,kleg->GetRange().second);
-	line->SetLineStyle(2);
-	line->SetLineWidth(2);
-	line->SetLineColor(kBlue);
-	line->Draw("same");
+	//plot the fit as well
+	asym->gfit->SetLineWidth(2);
+	asym->gfit->SetLineColor(kRed);
+	asym->gfit->SetLineStyle(1);
+	asym->gfit->Draw("same");
 	
 	plot->GetHisto()->Draw("sameaxis"); //draw again so axes on top
 	plot->DrawText();
@@ -113,33 +105,34 @@ void DrawAsym(KAsymFit* asym, bool print=false, string psuff="png", string pdir=
 
 
 //--------------------------------------------------
-//function to draw extrapolations
-void DrawExtrap(KAsymExtrap* extrap, string alphabin="", bool print=false, string psuff="png", string pdir="plots"){
+//function to draw extrapolations or trends
+void DrawExtrap(KAsymExtrap* extrap, double xmin, double xmax, string alphabin="", bool trend=false, bool print=false, string psuff="png", string pdir="plots"){
 	//skip empty or otherwise pointless extraps
-	if(extrap->asymfits.size()<2) return;
+	if(!trend && extrap->asymfits.size()<2) return;
 	
 	//create graphs
-	extrap->MakeGraphs();
+	extrap->MakeGraphs(xmin,xmax);
 	
 	//loop over parameters to be extrapolated
-	for(int p = 0; p < 4; ++p){
+	for(int p = 0; p < nExtrapPars; ++p){
 		//make canvas/print name
-		string oname = "extrap_";
+		string oname;
+		if(trend) oname = "trend_";
+		else oname = "extrap_";
 		if(alphabin.size()>0) oname += alphabin + "_";
 		switch(p){
 			case 0: oname += "mu"; break;
 			case 1: oname += "sigma"; break;
-			case 2: oname += "a"; break;
-			case 3: oname += "n"; break;
+			case 2: oname += "tau"; break;
 			default: oname += "";
 		}
 		oname += "_vs_";
 		switch((qty)(extrap->q_varied)){
 			case Jet: oname += "jet"; break;
-			case Alpha: 
-				if(extrap->asymfits[0]->atype==Std) { oname += "alpha"; }
-				else if(extrap->asymfits[0]->atype==Par) { oname += "apar"; }
-				else if(extrap->asymfits[0]->atype==Perp) { oname += "aperp"; }
+			case Alpha:
+				if((trend && extrap->asymextraps[0]->asymfits[0]->atype==Std) || extrap->asymfits[0]->atype==Std) { oname += "alpha"; }
+				else if((trend && extrap->asymextraps[0]->asymfits[0]->atype==Par) || extrap->asymfits[0]->atype==Par) { oname += "apar"; }
+				else if((trend && extrap->asymextraps[0]->asymfits[0]->atype==Perp) || extrap->asymfits[0]->atype==Perp) { oname += "aperp"; }
 				break;
 			case Pt: oname += "pt"; break;
 			case Eta:  oname += "eta"; break;
@@ -150,31 +143,39 @@ void DrawExtrap(KAsymExtrap* extrap, string alphabin="", bool print=false, strin
 
 		//create base histo for drawing axes
 		//TH1F* hbase = new TH1F("hbase","",100,extrap->graph[p]->GetXaxis()->GetXmin(),extrap->graph[p]->GetXaxis()->GetXmax());
-		TH1F* hbase = new TH1F("hbase","",100,0.0,0.25); //hardcoded for now
+		TH1F* hbase = new TH1F("hbase","",100,xmin,xmax);
 		hbase->GetXaxis()->SetTitle(extrap->graph[p]->GetXaxis()->GetTitle());
 		hbase->GetYaxis()->SetTitle(extrap->graph[p]->GetYaxis()->GetTitle());
-		double yrange = extrap->ymax[p] - extrap->ymin[p];
-		hbase->GetYaxis()->SetRangeUser(extrap->ymin[p]-yrange*0.1,extrap->ymax[p]+yrange*0.1);
+		double ymin = trend ? 0 : extrap->ymin[p];
+		double yrange = extrap->ymax[p] - ymin;
+		ymin = extrap->ymin[p]-yrange*0.1;
+		if(trend && ymin < 0) ymin = 0;
+		hbase->GetYaxis()->SetRangeUser(ymin,extrap->ymax[p]+yrange*0.1);
 
 		//get preamble text - each time, b/c vector will be modified
 		vector<string> preamble = extrap->GetCommonDescList();
 		if(alphabin.size()>0) preamble.push_back(alphabin+" #alpha");
 		vector<int> extra_text_panels(preamble.size(),0);
 		//add fit text
-		preamble.insert(preamble.end(),extrap->fitnames[p].begin(),extrap->fitnames[p].end());
-		vector<int> fit_panels(extrap->fitnames[p].size(),1);
-		extra_text_panels.insert(extra_text_panels.end(),fit_panels.begin(),fit_panels.end());
+		if(!trend){
+			preamble.insert(preamble.end(),extrap->fitnames[p].begin(),extrap->fitnames[p].end());
+			vector<int> fit_panels(extrap->fitnames[p].size(),1);
+			extra_text_panels.insert(extra_text_panels.end(),fit_panels.begin(),fit_panels.end());
+		}
 		
 		//make plot options
 		OptionMap* globalOpt = initGlobalOpt();
 		globalOpt->Set<vector<string> >("extra_text",preamble);
-		globalOpt->Set<int>("npanel",2);
-		globalOpt->Set<bool>("balance_panels",0);
-		globalOpt->Set<vector<int> >("extra_text_panels",extra_text_panels);
+		if(!trend){
+			globalOpt->Set<int>("npanel",2);
+			globalOpt->Set<bool>("balance_panels",0);
+			globalOpt->Set<vector<int> >("extra_text_panels",extra_text_panels);
+		}
 		globalOpt->Set<double>("sizeLeg",22);
 		globalOpt->Set<double>("sizeSymb",0.05);
 		OptionMap* localOpt = initLocalOpt();
 		localOpt->Set<bool>("logy",false);
+		//if(trend) localOpt->Set<bool>("logx",true);
 		
 		//make plot
 		KPlot* plot = new KPlot(oname,localOpt,globalOpt);
@@ -191,14 +192,17 @@ void DrawExtrap(KAsymExtrap* extrap, string alphabin="", bool print=false, strin
 		extrap->graph[p]->Draw("pe same");
 		
 		//draw fit
-		extrap->gfit[p]->SetLineWidth(2);
-		extrap->gfit[p]->SetLineColor(kRed);
-		extrap->gfit[p]->SetLineStyle(1);
-		extrap->gfit[p]->Draw("same");
-
+		if(!trend){
+			extrap->gfit[p]->SetLineWidth(2);
+			extrap->gfit[p]->SetLineColor(kRed);
+			extrap->gfit[p]->SetLineStyle(1);
+			extrap->gfit[p]->Draw("same");
+		}
+		
 		//build legend
 		kleg->AddHist(hbase); //for tick sizes
-		kleg->Build(KLegend::left,KLegend::top);
+		if(trend) kleg->Build(KLegend::right,KLegend::top);
+		else kleg->Build(KLegend::left,KLegend::top);
 
 		//finish drawing
 		plot->GetHisto()->Draw("sameaxis"); //draw again so axes on top

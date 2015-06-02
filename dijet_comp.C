@@ -27,9 +27,14 @@ void dijet_comp(bool print=false, string psuff="png", string pdir="plots", TFile
 	//axes: jtype, atype, pt, eta, alpha
 	for(int ijt = 0; ijt < bins.jtype.size(); ++ijt){
 		for(int iat = 0; iat < bins.atype.size(); ++iat){
-			for(int ipt = 0; ipt < bins.pt.size()-1; ++ipt){
-				//KAsymTrend here?
-				for(int iet = 0; iet < bins.eta.size()-1; ++iet){
+		//for(int iat = 0; iat < 1; ++iat){
+			for(int iet = 0; iet < bins.eta.size()-1; ++iet){
+			//for(int iet = 0; iet < 1; ++iet){
+				//KAsymTrend here
+				KAsymTrend* trend_excl = new KAsymTrend();
+				KAsymTrend* trend_incl = new KAsymTrend();
+				
+				for(int ipt = 0; ipt < bins.pt.size()-1; ++ipt){
 					//KAsymExtrap here
 					KAsymExtrap* extrap_excl = new KAsymExtrap();
 					KAsymExtrap* extrap_incl = new KAsymExtrap();
@@ -43,6 +48,12 @@ void dijet_comp(bool print=false, string psuff="png", string pdir="plots", TFile
 							KAsymFit* asym_excl = new KAsymFit(h_asym_excl,(alg)bins.jtype[ijt],(alph)bins.atype[iat],bins.alpha[ial],bins.alpha[ial+1],h_alpha_excl->GetMean(),h_alpha_excl->GetMeanError(),bins.pt[ipt],bins.pt[ipt+1],bins.eta[iet],bins.eta[iet+1]);
 							KDraw::DrawAsym(asym_excl,print,psuff,pdir);
 							extrap_excl->push_back(asym_excl);
+							
+							//inclusive = exclusive for first bin
+							if(ial==0) {
+								extrap_incl->push_back(asym_excl);
+								continue;
+							}
 						}
 						
 						//get histos from file - inclusive alpha binning
@@ -56,9 +67,18 @@ void dijet_comp(bool print=false, string psuff="png", string pdir="plots", TFile
 						}
 					}
 					
-					KDraw::DrawExtrap(extrap_excl,"excl",print,psuff,pdir);
-					KDraw::DrawExtrap(extrap_incl,"incl",print,psuff,pdir);
+					if(extrap_excl->asymfits.size()>1){
+						KDraw::DrawExtrap(extrap_excl,bins.alpha[0],bins.alpha.back(),"excl",false,print,psuff,pdir);
+						trend_excl->push_back(extrap_excl);
+					}
+					if(extrap_incl->asymfits.size()>1){
+						KDraw::DrawExtrap(extrap_incl,bins.alpha[0],bins.alpha.back(),"incl",false,print,psuff,pdir);
+						trend_incl->push_back(extrap_incl);
+					}
 				}
+				
+				KDraw::DrawExtrap(trend_excl,bins.pt[0],bins.pt.back(),"excl",true,print,psuff,pdir);
+				KDraw::DrawExtrap(trend_incl,bins.pt[0],bins.pt.back(),"incl",true,print,psuff,pdir);
 			}
 		}
 	}

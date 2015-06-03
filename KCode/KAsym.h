@@ -104,7 +104,7 @@ class KAsymFit {
 			jtype(jtype_), atype(atype_), amin(amin_), amax(amax_), alpha_mean(amean_), alpha_meanE(ameanE_), ptmin(ptmin_), 
 			ptmax(ptmax_), pt((ptmin+ptmax)/2), etamin(etamin_), etamax(etamax_), eta((etamin+etamax)/2), extra(extra_), color(color_),
 			legnames(qtySize,""), printnames(qtySize,""), cutname(""), printname(""),
-			hist(hist_), gfit(NULL), mean(0), meanE(0), rms(0), rmsE(0), Nevents(0), mu(0), muE(0), sigma(0), sigmaE(0), tau(0), tauE(0), chi2ndf(0)
+			hist(hist_), gfit(NULL), mean(0), meanE(0), rms(0), rmsE(0), Nevents(0), norm(0), normE(0), mu(0), muE(0), sigma(0), sigmaE(0), tau(0), tauE(0), chi2ndf(0)
 		{
 			//create legend names (descriptions) & print names
 			if(jtype==Reco) { legnames[Jet] = "RecoJet"; printnames[Jet] = "Reco"; }
@@ -164,26 +164,35 @@ class KAsymFit {
 			Nevents  = loghist->GetEntries();
 			
 			//fit histogram
-			//ROOT::Math::MinimizerOptions::SetDefaultMinimizer("Minuit2");
-			//ROOT::Math::MinimizerOptions::SetDefaultStrategy(2);
-			//TVirtualFitter::SetMaxIterations(50000);
+			//use "smart fit" approach from JECs
 			TF1* logfit = new TF1("logtot",lognovos,loghist->GetXaxis()->GetXmin(),loghist->GetXaxis()->GetXmax(),4);
 			//assume peak is at 0, arbitrary tail param
 			logfit->SetParameters(hist->GetBinContent(1),0,rms,0.5);
-			loghist->Fit(logfit,"NQ");
-			
-			//get values from fit
-			mu      = logfit->GetParameter(1);
-			muE     = logfit->GetParError(1);
-			sigma   = abs(logfit->GetParameter(2));
-			sigmaE  = logfit->GetParError(2);
-			tau     = abs(logfit->GetParameter(3));
-			tauE    = logfit->GetParError(3);
-			chi2ndf = logfit->GetChisquare()/logfit->GetNDF();
+			//ROOT::Math::MinimizerOptions::SetDefaultMinimizer("Minuit2");
+			//ROOT::Math::MinimizerOptions::SetDefaultStrategy(2);
+			//TVirtualFitter::SetMaxIterations(50000);
+			chi2ndf = -1;
+			for(int f = 0; f < 30; ++f){
+				loghist->Fit(logfit,"NQ");
+				
+				double ctmp = logfit->GetChisquare()/logfit->GetNDF();
+				if(ctmp < chi2ndf || chi2ndf == -1){
+					//get values from fit
+					norm    = logfit->GetParameter(0);
+					normE   = logfit->GetParError(0);
+					mu      = logfit->GetParameter(1);
+					muE     = logfit->GetParError(1);
+					sigma   = abs(logfit->GetParameter(2));
+					sigmaE  = logfit->GetParError(2);
+					tau     = abs(logfit->GetParameter(3));
+					tauE    = logfit->GetParError(3);
+					chi2ndf = logfit->GetChisquare()/logfit->GetNDF();
+				}
+			}
 			
 			//setup linear function
 			gfit = new TF1("tot",novos,hist->GetXaxis()->GetXmin(),hist->GetXaxis()->GetXmax(),4);
-			gfit->SetParameters(logfit->GetParameter(0),mu,sigma,tau);
+			gfit->SetParameters(norm,mu,sigma,tau);
 			//use linear function to compute chisquare with original histo
 			//chi2ndf = hist->Chisquare(gfit)/logfit->GetNDF();
 			
@@ -250,7 +259,7 @@ class KAsymFit {
 		TH1F* hist;
 		TF1* gfit;
 		double mean, meanE, rms, rmsE;
-		double mu, muE, sigma, sigmaE, tau, tauE, chi2ndf;
+		double norm, normE, mu, muE, sigma, sigmaE, tau, tauE, chi2ndf;
 		int Nevents;
 };
 

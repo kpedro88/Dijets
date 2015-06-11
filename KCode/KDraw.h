@@ -83,17 +83,25 @@ void DrawAsym(KAsymFit* asym, bool print=false, string psuff="png", string pdir=
 	
 	//linearized gaussian to show effect of tail
 	TF1* gsn = new TF1("gsn","gaus",asym->hist->GetXaxis()->GetXmin(),asym->hist->GetXaxis()->GetXmax());
-	gsn->SetParameters(asym->gfit->GetParameter(0),asym->mu,asym->sigma);
+	gsn->SetParameters(asym->norm,asym->mu,asym->sigma);
 	gsn->SetLineWidth(2);
 	gsn->SetLineColor(kRed);
 	gsn->SetLineStyle(2);
 	gsn->Draw("same");
 	
-	//plot the fit as well
-	asym->gfit->SetLineWidth(2);
-	asym->gfit->SetLineColor(kRed);
-	asym->gfit->SetLineStyle(1);
-	asym->gfit->Draw("same");
+	//plot the classic gaussian fit (extended to the full range)
+	TF1* gsnc = new TF1("gsnc","gaus",asym->hist->GetXaxis()->GetXmin(),asym->hist->GetXaxis()->GetXmax());
+	gsnc->SetParameters(asym->gnorm,asym->gmu,asym->gsigma);
+	gsnc->SetLineWidth(2);
+	gsnc->SetLineColor(kBlue);
+	gsnc->SetLineStyle(2);
+	gsnc->Draw("same");
+	
+	//plot the novos fit as well
+	asym->nfit->SetLineWidth(2);
+	asym->nfit->SetLineColor(kRed);
+	asym->nfit->SetLineStyle(1);
+	asym->nfit->Draw("same");
 	
 	plot->GetHisto()->Draw("sameaxis"); //draw again so axes on top
 	plot->DrawText();
@@ -124,6 +132,8 @@ void DrawExtrap(KAsymExtrap* extrap, double xmin, double xmax, string alphabin="
 			case 0: oname += "mu"; break;
 			case 1: oname += "sigma"; break;
 			case 2: oname += "tau"; break;
+			case 3: oname += "gmu"; break;
+			case 4: oname += "gsigma"; break;
 			default: oname += "";
 		}
 		oname += "_vs_";

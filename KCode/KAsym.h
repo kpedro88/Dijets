@@ -26,7 +26,7 @@
 #include <iostream>
 #include <cmath>
 
-#define nExtrapPars 3
+#define nExtrapPars 5
 
 using namespace std;
 using namespace TMath;
@@ -36,7 +36,7 @@ enum alg { Reco=0, Gen=1 };
 enum alph { Std=0, Par=1, Perp=2 };
 
 //------------------------------------------
-//Right-sided Novosibirsk function
+//Symmetric Novosibirsk function
 //following notation from CALICE in JINST 9 P01004
 //parameters:
 //N, mu, sigma, tau
@@ -50,7 +50,7 @@ Double_t novos(Double_t *x, Double_t *par){
 	//ensure tau > 0 for right-side tail
 	par[3] = Abs(par[3]);
 	Double_t tau = par[3];
-	Double_t arg = (x[0]-mu)/sigma;
+	Double_t arg = Abs(x[0]-mu)/sigma;
 	
 	//converges to gaussian as tau -> 0
 	if(Abs(tau)< 1.e-7) return N*Exp(-Power(arg,2)/2);
@@ -66,7 +66,7 @@ Double_t novos(Double_t *x, Double_t *par){
 }
 
 //------------------------------------------
-//Right-sided log(Novosibirsk) function
+//Symmetric log(Novosibirsk) function
 //following notation from CALICE in JINST 9 P01004
 //parameters:
 //N, mu, sigma, tau
@@ -80,7 +80,7 @@ Double_t lognovos(Double_t *x, Double_t *par){
 	//ensure tau > 0 for right-side tail
 	par[3] = Abs(par[3]);
 	Double_t tau = par[3]; //tail param can be positive or negative?
-	Double_t arg = (x[0]-mu)/sigma;
+	Double_t arg = Abs(x[0]-mu)/sigma;
 	
 	//converges to gaussian as tau -> 0
 	if(Abs(tau) < 1.e-7) return Log(N) - Power(arg,2)/2;
@@ -104,7 +104,9 @@ class KAsymFit {
 			jtype(jtype_), atype(atype_), amin(amin_), amax(amax_), alpha_mean(amean_), alpha_meanE(ameanE_), ptmin(ptmin_), 
 			ptmax(ptmax_), pt((ptmin+ptmax)/2), etamin(etamin_), etamax(etamax_), eta((etamin+etamax)/2), extra(extra_), color(color_),
 			legnames(qtySize,""), printnames(qtySize,""), cutname(""), printname(""),
-			hist(hist_), gfit(NULL), mean(0), meanE(0), rms(0), rmsE(0), Nevents(0), norm(0), normE(0), mu(0), muE(0), sigma(0), sigmaE(0), tau(0), tauE(0), chi2ndf(0)
+			hist(hist_), nfit(NULL), gfit(NULL), mean(0), meanE(0), rms(0), rmsE(0), Nevents(0),
+			norm(0), normE(0), mu(0), muE(0), sigma(0), sigmaE(0), tau(0), tauE(0), chi2ndf(0),
+			gnorm(0), gnormE(0), gmu(0), gmuE(0), gsigma(0), gsigmaE(0), gchi2ndf(0)
 		{
 			//create legend names (descriptions) & print names
 			if(jtype==Reco) { legnames[Jet] = "RecoJet"; printnames[Jet] = "Reco"; }
@@ -165,34 +167,34 @@ class KAsymFit {
 			
 			//fit histogram
 			//use "smart fit" approach from JECs
-			TF1* logfit = new TF1("logtot",lognovos,loghist->GetXaxis()->GetXmin(),loghist->GetXaxis()->GetXmax(),4);
+			TF1* lognfit = new TF1("logtot",lognovos,loghist->GetXaxis()->GetXmin(),loghist->GetXaxis()->GetXmax(),4);
 			//assume peak is at 0, arbitrary tail param
-			logfit->SetParameters(hist->GetBinContent(1),0,rms,0.5);
+			lognfit->SetParameters(hist->GetBinContent(1),0,rms,0.5);
 			//ROOT::Math::MinimizerOptions::SetDefaultMinimizer("Minuit2");
 			//ROOT::Math::MinimizerOptions::SetDefaultStrategy(2);
 			//TVirtualFitter::SetMaxIterations(50000);
 			chi2ndf = -1;
 			for(int f = 0; f < 30; ++f){
-				loghist->Fit(logfit,"NQ");
+				loghist->Fit(lognfit,"NQ");
 				
-				double ctmp = logfit->GetChisquare()/logfit->GetNDF();
+				double ctmp = lognfit->GetChisquare()/lognfit->GetNDF();
 				if(ctmp < chi2ndf || chi2ndf == -1){
 					//get values from fit
-					norm    = logfit->GetParameter(0);
-					normE   = logfit->GetParError(0);
-					mu      = logfit->GetParameter(1);
-					muE     = logfit->GetParError(1);
-					sigma   = abs(logfit->GetParameter(2));
-					sigmaE  = logfit->GetParError(2);
-					tau     = abs(logfit->GetParameter(3));
-					tauE    = logfit->GetParError(3);
-					chi2ndf = logfit->GetChisquare()/logfit->GetNDF();
+					norm    = lognfit->GetParameter(0);
+					normE   = lognfit->GetParError(0);
+					mu      = lognfit->GetParameter(1);
+					muE     = lognfit->GetParError(1);
+					sigma   = abs(lognfit->GetParameter(2));
+					sigmaE  = lognfit->GetParError(2);
+					tau     = abs(lognfit->GetParameter(3));
+					tauE    = lognfit->GetParError(3);
+					chi2ndf = lognfit->GetChisquare()/lognfit->GetNDF();
 				}
 			}
 			
 			//setup linear function
-			gfit = new TF1("tot",novos,hist->GetXaxis()->GetXmin(),hist->GetXaxis()->GetXmax(),4);
-			gfit->SetParameters(norm,mu,sigma,tau);
+			nfit = new TF1("tot",novos,hist->GetXaxis()->GetXmin(),hist->GetXaxis()->GetXmax(),4);
+			nfit->SetParameters(norm,mu,sigma,tau);
 			//use linear function to compute chisquare with original histo
 			//chi2ndf = hist->Chisquare(gfit)/logfit->GetNDF();
 			
@@ -205,6 +207,28 @@ class KAsymFit {
 			tauname.precision(3); tauname << fixed << "#tau = " << tau << " #pm " << tauE; fitnames.push_back(tauname.str());
 			chiname.precision(5); chiname << fixed << "#chi^{2}/ndf = " << chi2ndf; fitnames.push_back(chiname.str());
 			
+			//now do the "classic" gaussian core fit for comparison
+			//iteration 1: fit to range determined by mean and RMS
+			gfit = new TF1("gsn","gaus",max(0.,mean-2.5*rms),mean+2.5*rms);
+			hist->Fit(gfit,"NQR");
+			//iteration 2: fit to range determined by mu and sigma from iter 1
+			gfit->SetRange(max(0.,gfit->GetParameter(1)-2*gfit->GetParameter(2)),gfit->GetParameter(1)+2*gfit->GetParameter(2));
+			hist->Fit(gfit,"NQR");
+			//get values from fit
+			gnorm    = gfit->GetParameter(0);
+			gnormE   = gfit->GetParError(0);
+			gmu      = gfit->GetParameter(1);
+			gmuE     = gfit->GetParError(1);
+			gsigma   = abs(gfit->GetParameter(2));
+			gsigmaE  = gfit->GetParError(2);
+			gchi2ndf = gfit->GetChisquare()/gfit->GetNDF();
+			//fit text
+			std::stringstream gmuname, gsigmaname, gchiname;
+			gmuname.precision(3); gmuname << fixed << "#mu = " << gmu << " #pm " << gmuE; fitnames.push_back(gmuname.str());
+			gsigmaname.precision(3); gsigmaname << fixed << "#sigma = " << gsigma << " #pm " << gsigmaE; fitnames.push_back(gsigmaname.str());
+			gchiname.precision(5); gchiname << fixed << "#chi^{2}/ndf = " << gchi2ndf; fitnames.push_back(gchiname.str());
+			
+			//todo: add tail measurements and uncertainties...
 		}
 	
 		//accessors
@@ -235,6 +259,8 @@ class KAsymFit {
 				case 0: return mu;
 				case 1: return sigma;
 				case 2: return tau;
+				case 3: return gmu;
+				case 4: return gsigma;
 				default: return 0;
 			}
 		}
@@ -243,6 +269,8 @@ class KAsymFit {
 				case 0: return muE;
 				case 1: return sigmaE;
 				case 2: return tauE;
+				case 3: return gmuE;
+				case 4: return gsigmaE;
 				default: return 0;
 			}
 		}
@@ -257,9 +285,10 @@ class KAsymFit {
 		vector<string> legnames, printnames, fitnames;
 		string printname, cutname;
 		TH1F* hist;
-		TF1* gfit;
+		TF1 *nfit, *gfit;
 		double mean, meanE, rms, rmsE;
 		double norm, normE, mu, muE, sigma, sigmaE, tau, tauE, chi2ndf;
+		double gnorm, gnormE, gmu, gmuE, gsigma, gsigmaE, gchi2ndf;
 		int Nevents;
 };
 
@@ -387,6 +416,8 @@ class KAsymExtrap {
 				case 0: graph[p]->GetYaxis()->SetTitle("#mu"); break;
 				case 1: graph[p]->GetYaxis()->SetTitle("#sigma"); break;
 				case 2: graph[p]->GetYaxis()->SetTitle("#tau"); break;
+				case 3: graph[p]->GetYaxis()->SetTitle("#mu_{gsn}"); break;
+				case 4: graph[p]->GetYaxis()->SetTitle("#sigma_{gsn}"); break;
 				default: graph[p]->GetYaxis()->SetTitle("");
 			}
 			
@@ -508,6 +539,8 @@ class KAsymTrend : public KAsymExtrap {
 				case 0: graph[p]->GetYaxis()->SetTitle("#mu"); break;
 				case 1: graph[p]->GetYaxis()->SetTitle("#sigma"); break;
 				case 2: graph[p]->GetYaxis()->SetTitle("#tau"); break;
+				case 3: graph[p]->GetYaxis()->SetTitle("#mu_{gsn}"); break;
+				case 4: graph[p]->GetYaxis()->SetTitle("#sigma_{gsn}"); break;
 				default: graph[p]->GetYaxis()->SetTitle("");
 			}
 			

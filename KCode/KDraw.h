@@ -134,6 +134,9 @@ void DrawExtrap(KAsymExtrap* extrap, double xmin, double xmax, string alphabin="
 			case 2: oname += "tau"; break;
 			case 3: oname += "gmu"; break;
 			case 4: oname += "gsigma"; break;
+			case 5: oname += "fmc"; break;
+			case 6: oname += "fdata"; break;
+			case 7: oname += "sf"; break;
 			default: oname += "";
 		}
 		oname += "_vs_";
@@ -161,6 +164,8 @@ void DrawExtrap(KAsymExtrap* extrap, double xmin, double xmax, string alphabin="
 		ymin = extrap->ymin[p]-yrange*0.1;
 		if(trend && ymin < 0) ymin = 0;
 		hbase->GetYaxis()->SetRangeUser(ymin,extrap->ymax[p]+yrange*0.1);
+		//temporary
+		if(p==7) hbase->GetYaxis()->SetRangeUser(0.5,1.5);
 
 		//get preamble text - each time, b/c vector will be modified
 		vector<string> preamble = extrap->GetCommonDescList();

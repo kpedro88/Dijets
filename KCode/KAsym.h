@@ -18,6 +18,9 @@
 #include <TColor.h>
 #include "Math/MinimizerOptions.h"
 #include <TVirtualFitter.h>
+#include <TGraphAsymmErrors.h>
+#include <TEfficiency.h>
+#include <TObjArray.h>
 
 //STL headers
 #include <vector>
@@ -26,7 +29,10 @@
 #include <iostream>
 #include <cmath>
 
-#define nExtrapPars 5
+//custom headers
+#include "Analysis/KCode/KMath.h"
+
+#define nExtrapPars 8
 
 using namespace std;
 using namespace TMath;
@@ -79,7 +85,7 @@ Double_t lognovos(Double_t *x, Double_t *par){
 	Double_t sigma = par[2];
 	//ensure tau > 0 for right-side tail
 	par[3] = Abs(par[3]);
-	Double_t tau = par[3]; //tail param can be positive or negative?
+	Double_t tau = par[3];
 	Double_t arg = Abs(x[0]-mu)/sigma;
 	
 	//converges to gaussian as tau -> 0
@@ -100,13 +106,14 @@ Double_t lognovos(Double_t *x, Double_t *par){
 class KAsymFit {
 	public:
 		//constructor
-		KAsymFit(TH1F* hist_, alg jtype_, alph atype_, double amin_, double amax_, double amean_, double ameanE_, double ptmin_, double ptmax_, double etamin_, double etamax_, string extra_="", Color_t color_=kBlack) :
+		KAsymFit(TH1F* hist_, vector<TH1F*> hsplit_, vector<float> weights_, alg jtype_, alph atype_, double amin_, double amax_, double amean_, double ameanE_, double ptmin_, double ptmax_, double etamin_, double etamax_, string extra_="", Color_t color_=kBlack) :
 			jtype(jtype_), atype(atype_), amin(amin_), amax(amax_), alpha_mean(amean_), alpha_meanE(ameanE_), ptmin(ptmin_), 
 			ptmax(ptmax_), pt((ptmin+ptmax)/2), etamin(etamin_), etamax(etamax_), eta((etamin+etamax)/2), extra(extra_), color(color_),
 			legnames(qtySize,""), printnames(qtySize,""), cutname(""), printname(""),
-			hist(hist_), nfit(NULL), gfit(NULL), mean(0), meanE(0), rms(0), rmsE(0), Nevents(0),
+			hist(hist_), hsplit(hsplit_), weights(weights_), nfit(NULL), gfit(NULL), mean(0), meanE(0), rms(0), rmsE(0), Nevents(0),
 			norm(0), normE(0), mu(0), muE(0), sigma(0), sigmaE(0), tau(0), tauE(0), chi2ndf(0),
-			gnorm(0), gnormE(0), gmu(0), gmuE(0), gsigma(0), gsigmaE(0), gchi2ndf(0)
+			gnorm(0), gnormE(0), gmu(0), gmuE(0), gsigma(0), gsigmaE(0), gchi2ndf(0),
+			fmc(0), fmcElow(0), fmcEup(0), fdata(0), fdataElow(0), fdataEup(0), sf(0), sfElow(0), sfEup(0)
 		{
 			//create legend names (descriptions) & print names
 			if(jtype==Reco) { legnames[Jet] = "RecoJet"; printnames[Jet] = "Reco"; }
@@ -228,7 +235,75 @@ class KAsymFit {
 			gsigmaname.precision(3); gsigmaname << fixed << "#sigma = " << gsigma << " #pm " << gsigmaE; fitnames.push_back(gsigmaname.str());
 			gchiname.precision(5); gchiname << fixed << "#chi^{2}/ndf = " << gchi2ndf; fitnames.push_back(gchiname.str());
 			
-			//todo: add tail measurements and uncertainties...
+			//set boundary of integral
+			//options: gsigma, gsigma_0 (extrapolated to alpha=0), gsigma_C (0 <= alpha < 0.05)
+			//currently using gsigma
+			int gsigma_bin = hist->FindBin(2.5*gsigma);
+			
+			//tail fraction measurement from MC (use event weights for errors)
+			//for each pT^hat bin with different xsec weight:
+			//calculate the error terms by hand, then sum up
+			double fmc_numer, fmc_denom;
+			fmc_numer = fmc_denom = 0;
+			double p_err_low, p_err_up, f_err_low, f_err_up;
+			p_err_low = p_err_up = f_err_low = f_err_up = 0.;
+			for(int iwe = 0; iwe < weights.size(); ++iwe){
+				TH1F* htmp = hsplit[iwe];
+				if(!htmp || htmp->GetEntries()==0) continue;
+				
+				//get total, pass, fail
+				int N_i = htmp->Integral(0,htmp->GetNbinsX()+1);
+				int p_i = htmp->Integral(gsigma_bin,htmp->GetNbinsX()+1);
+				int f_i = N_i - p_i;
+
+				//add to efficiency factors
+				fmc_numer += weights[iwe]*p_i;
+				fmc_denom += weights[iwe]*N_i;
+				
+				//calculate errors
+				p_err_low += pow(weights[iwe],2)*pow(KMath::PoissonErrorLow(p_i),2);
+				p_err_up += pow(weights[iwe],2)*pow(KMath::PoissonErrorUp(p_i),2);
+				f_err_low += pow(weights[iwe],2)*pow(KMath::PoissonErrorLow(f_i),2);
+				f_err_up += pow(weights[iwe],2)*pow(KMath::PoissonErrorUp(f_i),2);
+			}
+			//finish error calculation
+			//NB: this is a lazy way of propagating asymmetric errors
+			fmc = fmc_numer/fmc_denom;
+			fmcElow = sqrt(pow(1-fmc,2)*p_err_low + pow(fmc,2)*f_err_low)/fmc_denom;
+			fmcEup = sqrt(pow(1-fmc,2)*p_err_up + pow(fmc,2)*f_err_up)/fmc_denom;
+			
+			//tail fraction measurement from "data" : no bin weights, simple efficiency
+			//todo: for tail fraction from novos fit, clone histo with Poisson bin errors
+			//todo: account for prescale factor based on pTave bin?
+			if(hist->GetEntries()>0){
+				double N_data = round(hist->Integral(0,hist->GetNbinsX()+1));
+				double p_data = round(hist->Integral(gsigma_bin,hist->GetNbinsX()+1));
+				double f_data = N_data - p_data;
+				fdata = p_data/N_data;
+				fdataElow = sqrt(pow(1-fdata,2)*pow(KMath::PoissonErrorLow((int)p_data),2) + pow(fdata,2)*pow(KMath::PoissonErrorLow((int)f_data),2))/N_data;
+				fdataEup = sqrt(pow(1-fdata,2)*pow(KMath::PoissonErrorUp((int)p_data),2) + pow(fdata,2)*pow(KMath::PoissonErrorUp((int)f_data),2))/N_data;
+			}
+			
+			//scale factor
+			if(fmc!=0){
+				sf = fdata/fmc;
+				sfElow = sf*sqrt(pow(fdataElow,2)/pow(fdata,2) + pow(fmcElow,2)/pow(fmc,2));
+				sfEup = sf*sqrt(pow(fdataEup,2)/pow(fdata,2) + pow(fmcEup,2)/pow(fmc,2));
+			}
+			else { //nan protection
+				sf = 1.0;
+				sfElow = 0.0;
+				sfEup = 0.0;
+			}
+			
+			//debugging
+			//cout << printname << endl;
+			//cout << " fmc: " << fmc << " + " << fmcElow << " - " << fmcEup << endl;
+			//cout << "fdata: " << fdata << " + " << fdataElow << " - " << fdataEup << endl;
+			//cout << "sf: " << sf << " + " << sfElow << " - " << sfEup << endl;
+			
+			//todo: include subtraction of gaussian core part & associated error propagation
+			
 		}
 	
 		//accessors
@@ -261,6 +336,9 @@ class KAsymFit {
 				case 2: return tau;
 				case 3: return gmu;
 				case 4: return gsigma;
+				case 5: return fmc;
+				case 6: return fdata;
+				case 7: return sf;
 				default: return 0;
 			}
 		}
@@ -274,6 +352,22 @@ class KAsymFit {
 				default: return 0;
 			}
 		}
+		double GetYerrLow(int p){
+			switch(p){
+				case 5: return fmcElow;
+				case 6: return fdataElow;
+				case 7: return sfElow;
+				default: return GetYerr(p);
+			}
+		}
+		double GetYerrUp(int p){
+			switch(p){
+				case 5: return fmcEup;
+				case 6: return fdataEup;
+				case 7: return sfEup;
+				default: return GetYerr(p);
+			}
+		}
 		
 		//member variables
 		alg jtype;
@@ -285,10 +379,13 @@ class KAsymFit {
 		vector<string> legnames, printnames, fitnames;
 		string printname, cutname;
 		TH1F* hist;
+		vector<TH1F*> hsplit;
+		vector<float> weights;
 		TF1 *nfit, *gfit;
 		double mean, meanE, rms, rmsE;
 		double norm, normE, mu, muE, sigma, sigmaE, tau, tauE, chi2ndf;
 		double gnorm, gnormE, gmu, gmuE, gsigma, gsigmaE, gchi2ndf;
+		double fmc, fmcElow, fmcEup, fdata, fdataElow, fdataEup, sf, sfElow, sfEup;
 		int Nevents;
 };
 
@@ -384,21 +481,25 @@ class KAsymExtrap {
 		}
 		virtual void MakeGraph(int p, double xmin, double xmax){
 			double* x = new double[asymfits.size()];
-			double* xe = new double[asymfits.size()];
+			double* xel = new double[asymfits.size()];
+			double* xeu = new double[asymfits.size()];
 			double* y = new double[asymfits.size()];
-			double* ye = new double[asymfits.size()];
+			double* yel = new double[asymfits.size()];
+			double* yeu = new double[asymfits.size()];
 			
 			for(int s = 0; s < asymfits.size(); s++){
 				x[s] = asymfits[s]->GetX((qty)q_varied);
-				xe[s] = asymfits[s]->GetXerr((qty)q_varied);
+				xel[s] = asymfits[s]->GetXerr((qty)q_varied);
+				xeu[s] = asymfits[s]->GetXerr((qty)q_varied);
 				y[s] = asymfits[s]->GetY(p);
-				ye[s] = asymfits[s]->GetYerr(p);
+				yel[s] = asymfits[s]->GetYerrLow(p);
+				yeu[s] = asymfits[s]->GetYerrUp(p);
 				if(y[s]>ymax[p]) ymax[p] = y[s];
 				if(y[s]<ymin[p]) ymin[p] = y[s];
 			}
 			
 			if(graph[p]) delete graph[p];
-			graph[p] = new TGraphErrors(asymfits.size(),x,y,xe,ye);
+			graph[p] = new TGraphAsymmErrors(asymfits.size(),x,y,xel,xeu,yel,yeu);
 			
 			//axis titles
 			switch((qty)q_varied){
@@ -418,6 +519,9 @@ class KAsymExtrap {
 				case 2: graph[p]->GetYaxis()->SetTitle("#tau"); break;
 				case 3: graph[p]->GetYaxis()->SetTitle("#mu_{gsn}"); break;
 				case 4: graph[p]->GetYaxis()->SetTitle("#sigma_{gsn}"); break;
+				case 5: graph[p]->GetYaxis()->SetTitle("#it{f}_{mc}"); break;
+				case 6: graph[p]->GetYaxis()->SetTitle("#it{f}_{data}"); break;
+				case 7: graph[p]->GetYaxis()->SetTitle("#it{s}_{data/mc}"); break;
 				default: graph[p]->GetYaxis()->SetTitle("");
 			}
 			
@@ -426,12 +530,18 @@ class KAsymExtrap {
 			graph[p]->SetMarkerColor(color);
 			graph[p]->SetLineColor(color);
 			
-			//linear fit
-			if(gfit[p]) delete gfit[p];
-			if(q_varied==Alpha) gfit[p] = new TF1("lin","pol1",xmin,xmax);
-			else gfit[p] = new TF1("lin","pol1",graph[p]->GetXaxis()->GetXmin(),graph[p]->GetXaxis()->GetXmax());
-			graph[p]->Fit(gfit[p],"NQ");
+			//better of pol0 vs pol1 fit
+			if(q_varied!=Alpha) { xmin = graph[p]->GetXaxis()->GetXmin(); xmax = graph[p]->GetXaxis()->GetXmax(); }
+			TF1* gfit0 = new TF1("const","pol0",xmin,xmax);
+			graph[p]->Fit(gfit0,"NQ");
+			TF1* gfit1 = new TF1("lin","pol1",xmin,xmax);
+			graph[p]->Fit(gfit1,"NQ");
 			
+			//choose better fit
+			if(gfit[p]) delete gfit[p];
+			//NB: pol0 fit always chosen for SF extrap -> only makes sense for fake data from MC
+			if(gfit0->GetChisquare()/gfit0->GetNDF() < gfit1->GetChisquare()/gfit1->GetNDF() || p==7) { gfit[p] = gfit0; delete gfit1; }
+			else { gfit[p] = gfit1; delete gfit0; }
 			//get values from fit
 			p0[p]   = gfit[p]->GetParameter(0);
 			p0E[p]  = gfit[p]->GetParError(0);
@@ -452,7 +562,7 @@ class KAsymExtrap {
 		vector<KAsymFit*> asymfits;
 		vector<KAsymExtrap*> asymextraps;
 		vector<bool> common;
-		TGraphErrors* graph[nExtrapPars];
+		TGraphAsymmErrors* graph[nExtrapPars];
 		TF1* gfit[nExtrapPars];
 		double p0[nExtrapPars], p0E[nExtrapPars], chi2ndf[nExtrapPars], ymax[nExtrapPars], ymin[nExtrapPars];
 		int q_varied;
@@ -521,7 +631,7 @@ class KAsymTrend : public KAsymExtrap {
 			}
 			
 			if(graph[p]) delete graph[p];
-			graph[p] = new TGraphErrors(asymextraps.size(),x,y,xe,ye);
+			graph[p] = new TGraphAsymmErrors(asymextraps.size(),x,y,xe,xe,ye,ye);
 			
 			//axis titles
 			switch((qty)q_varied){
@@ -541,6 +651,9 @@ class KAsymTrend : public KAsymExtrap {
 				case 2: graph[p]->GetYaxis()->SetTitle("#tau"); break;
 				case 3: graph[p]->GetYaxis()->SetTitle("#mu_{gsn}"); break;
 				case 4: graph[p]->GetYaxis()->SetTitle("#sigma_{gsn}"); break;
+				case 5: graph[p]->GetYaxis()->SetTitle("#it{f}_{mc}"); break;
+				case 6: graph[p]->GetYaxis()->SetTitle("#it{f}_{data}"); break;
+				case 7: graph[p]->GetYaxis()->SetTitle("#it{s}_{data/mc}"); break;
 				default: graph[p]->GetYaxis()->SetTitle("");
 			}
 			

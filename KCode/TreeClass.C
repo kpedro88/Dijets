@@ -11,6 +11,8 @@
 //STL headers
 #include <vector>
 #include <cmath>
+#include <iostream>
+#include <iomanip>
 
 using namespace std;
 
@@ -45,11 +47,13 @@ void TreeClass::Loop()
 	TH1::SetDefaultSumw2(kTRUE);
 	
 	//setup bins
-	KAsymBins bins;
+	//KAsymBins bins;
+	KAsymBins bins("input/input_bins_test.txt");
 	if(!bins.parsed) return;
 	//open output ROOT file
 	//TFile* file = TFile::Open("tree_test_dijet/hist_QCD.root","RECREATE");
-	TFile* file = TFile::Open("tree_dijet/hist_QCD.root","RECREATE");
+	//TFile* file = TFile::Open("tree_dijet/hist_QCD.root","RECREATE");
+	TFile* file = TFile::Open("tree_dijet/hist_QCD_test.root","RECREATE");
 	file->cd();
 	//setup histos
 	bins.MakeHistos();
@@ -84,9 +88,9 @@ void TreeClass::Loop()
 			}
 		
 			//loop over jet qty bins
-			int ipt, iet;
-			bool bpt, bet;
-			bpt = bet = false;
+			int ipt, iet, iwe;
+			bool bpt, bet, bwe;
+			bpt = bet = bwe = false;
 			
 			for(ipt = 0; ipt < bins.pt.size()-1; ++ipt){
 				if(dijetpt>=bins.pt[ipt] && dijetpt<bins.pt[ipt+1]){
@@ -103,6 +107,13 @@ void TreeClass::Loop()
 				}
 			}
 			if(!bet) continue;
+			
+			for(iwe = 0; iwe < bins.weights.size(); ++iwe){
+				if(weight == bins.weights[iwe]){
+					bwe = true;
+					break;
+				}
+			}
 			
 			//loop over alpha types
 			for(int iat = 0; iat < bins.atype.size(); ++iat){
@@ -124,12 +135,22 @@ void TreeClass::Loop()
 					if(alpha>=0.0 && alpha<=bins.alpha[ial+1]){
 						bins.asym_incl[ijt][iat][ipt][iet][ial]->Fill(asymmetry,weight);
 						bins.alpha_incl[ijt][iat][ipt][iet][ial]->Fill(alpha,weight);
+						
+						//fill split histograms w/out weights, to be used for efficiency calcs
+						if(bwe) {
+							bins.asym_split_incl[ijt][iat][ipt][iet][ial][iwe]->Fill(asymmetry);
+						}
 					}
 					
 					//exclusive binning
 					if(alpha>=bins.alpha[ial] && alpha<bins.alpha[ial+1]){
 						bins.asym_excl[ijt][iat][ipt][iet][ial]->Fill(asymmetry,weight);
 						bins.alpha_excl[ijt][iat][ipt][iet][ial]->Fill(alpha,weight);
+						
+						//fill split histograms w/out weights, to be used for efficiency calcs
+						if(bwe) {
+							bins.asym_split_excl[ijt][iat][ipt][iet][ial][iwe]->Fill(asymmetry);
+						}
 					}	
 				}
 			}
